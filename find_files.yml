@@ -1,0 +1,62 @@
+- hosts: localhost
+  gather_facts: false
+  become: yes
+  
+  vars_files: 
+    - vars.yml
+    
+  tasks:
+    - name: To get the first part of the hostname
+      shell:
+        "hostname | cut -d '.' -f 1 | cut -c 1-5"
+      register: hostname_first
+    # we will get something like xpd02
+    
+    - set_fact: 
+        HOST_FIRST: "{{ hostname_first.stdout }}_rman"
+    - debug:
+        msg: "Host variabel is - {{ HOST_FIRST }}"
+        
+    - name: Excluding folders which have share_***
+      shell:
+        "ls -ld /backup/share* | awk '{print $9}' | grep -v '_'"
+      register: folders_found
+    # there can number of folders like share1, share2,..... and along with share1_xdfgr2, share2_***, ....
+    
+    - debug:
+        msg: "folders found - {{ folders_found.stdout_lines }}"
+        
+    # this is where I have issues. I m not able to understand how to loop through each folder we find (share1-8) and check for df -h and then do find command. 
+    
+    - name: go into each folder and check for df -h
+      shell:
+        "df -h | grep - xpd02 | cut -d '/' -f 4"
+      with_items:
+        - "{{ folders_found.stdout_lines }}"
+      register: filesystem
+      
+    - debug:
+        msg: " df on folders - {{ filesystem.stdout_lines }}"
+        
+    - set_fact:
+        FILE_SYSTEM: "{{ filesystem.stdout_lines }}"
+    
+    # I dont know if I can do this, but the find command works if I remove the when condition and the df logic, 
+    # and run it just with folders_found. 
+    
+    - name: check each folder for files older than 60 days
+      shell:
+        "find {{ item }} -type d -iname *.SAVE && find {{ item }} -type d -iname *.SAVE -mtime 60"
+      register: outvalues
+      when: FILE_SYSTEM == HOST_FIRST
+      
+    - set_fact:
+        stdout_lines: []
+        
+    - set_fact:
+        stdout_lines: "{{ stdout_lines + item.stdout_lines }}"
+      with_items: "{{ outvalues.results }}"
+      
+    - debug:
+        msg: "These are the files found: {{ item }}"
+      with_items: "{{ stdout_lines }}"
